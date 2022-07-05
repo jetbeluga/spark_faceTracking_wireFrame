@@ -62,7 +62,7 @@ async function setMaterial(materials, color, opacity, materialIndex) {
   material.setTextureSlot(textureSlot, color);
   material.opacity = opacity;
 
-  Diagnostics.log("afterSlot");
+  // Diagnostics.log("afterSlot");
 
   return material;
 }
@@ -87,12 +87,15 @@ async function createMeshes(
     (index / amountOfMeshes) * (materials.length - 1)
   );
   const smoothBy = (maxSmooth / amountOfMeshes) * (index + 1);
-  const delayBy = (maxDelay / amountOfMeshes) * (index + 1);
+  // const delayBy = (maxDelay / amountOfMeshes) * (index + 1);
+  // a * b ^x /a<0
+  const delayBy = Math.pow((0 - (1 / amountOfMeshes) * (index + 1)) * 20, 2);
+  // Diagnostics.log(delayBy);
   const color = await createColor(faceTrackingTex, materialIndex);
   const opacity = (1 / amountOfMeshes) * index;
   const material = await setMaterial(materials, color, opacity, materialIndex);
   let transform = FaceTracking.face(0).cameraTransform;
-  Diagnostics.log("create");
+  // Diagnostics.log("create");
   let newMesh = await Scene.create("FaceMesh", {
     name: "mesh" + index,
   });
@@ -103,9 +106,6 @@ async function createMeshes(
 }
 
 async function removeFromParent(mesh, meshesParent) {
-  // Diagnostics.log("removed");
-  //
-  // return await meshesParent.removeChild(mesh);
   return await Scene.destroy(mesh);
 }
 
@@ -115,7 +115,7 @@ async function addToParent(mesh, meshesParent) {
 }
 
 async function main() {
-  const amountOfMeshes = 8;
+  const amountOfMeshes = 36;
   const maxSmooth = 350;
   const maxDelay = 0.8;
   const [meshesParent, faceTrackingTex, materials] = await Promise.all([
@@ -149,16 +149,16 @@ async function main() {
   // await initialisation
   let touchActive = true;
   async function createAndDestroyMeshes() {
-    Diagnostics.log("firstInterval");
+    // Diagnostics.log("firstInterval");
     const first = [];
     for (let i = 0; i < amountOfMeshes; i++) {
-      Diagnostics.log("remove");
+      // Diagnostics.log("remove");
       const currentMesh = allMeshes[i];
       first.push(await removeFromParent(currentMesh, meshesParent));
     }
     Promise.all(first)
       .then(async () => {
-        Diagnostics.log("secondInterval");
+        // Diagnostics.log("secondInterval");
         const meshes = [];
         for (let i = 0; i < amountOfMeshes; i++) {
           meshes.push(
@@ -181,14 +181,12 @@ async function main() {
   async function gameLoop() {
     TouchGestures.onTap().subscribe(async (gesture) => {
       if (touchActive) {
-        Diagnostics.log("tap");
+        // Diagnostics.log("tap");
         touchActive = false;
-        Diagnostics.log("deactivated");
+        // Diagnostics.log("deactivated");
         createAndDestroyMeshes();
 
-        Diagnostics.log("activated");
-      } else {
-        Diagnostics.log("inactiveTape");
+        // Diagnostics.log("activated");
       }
     });
   }
