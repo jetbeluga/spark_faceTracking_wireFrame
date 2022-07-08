@@ -6,45 +6,41 @@ const Textures = require("Textures");
 const Shaders = require("Shaders");
 const Time = require("Time");
 const Diagnostics = require("Diagnostics");
+const Animation = require("Animation");
 const TouchGestures = require("TouchGestures");
-function animateMesh(newMesh, smoothBy, delayBy, transform) {
-  let xValue = Reactive.expSmooth(
-    transform.x.delayBy({
-      milliseconds: delayBy,
-    }),
-    smoothBy
-  );
-  let yValue = Reactive.expSmooth(
-    transform.y.delayBy({
-      milliseconds: delayBy,
-    }),
-    smoothBy
-  );
-  let zValue = Reactive.expSmooth(
-    transform.z.delayBy({
-      milliseconds: delayBy,
-    }),
-    smoothBy
-  );
 
-  let xRotation = Reactive.expSmooth(
-    transform.rotationX.delayBy({
-      milliseconds: delayBy,
-    }),
-    smoothBy
-  );
-  let yRotation = Reactive.expSmooth(
-    transform.rotationY.delayBy({
-      milliseconds: delayBy,
-    }),
-    smoothBy
-  );
-  let zRotation = Reactive.expSmooth(
-    transform.rotationZ.delayBy({
-      milliseconds: delayBy,
-    }),
-    smoothBy
-  );
+function animateMesh(newMesh, smoothBy, delayBy, transform, index) {
+  function createSignal(transformArea, delayBy, index) {
+    const signalId = "signal".concat(
+      Time.ms
+        .pinLastValue()
+        .toString()
+        .concat(transformArea + index.toString())
+    );
+
+    let newKey = Reactive.scalarSignalSource(signalId);
+    newKey.set(
+      transform[transformArea].delayBy({
+        milliseconds: delayBy,
+      })
+    );
+    return newKey;
+  }
+
+  const xDelaySource = createSignal("x", delayBy, index);
+  const yDelaySource = createSignal("y", delayBy, index);
+  const zDelaySource = createSignal("z", delayBy, index);
+  const rxDelaySource = createSignal("rotationX", delayBy, index);
+  const ryDelaySource = createSignal("rotationY", delayBy, index);
+  const rzDelaySource = createSignal("rotationZ", delayBy, index);
+
+  let xValue = Reactive.expSmooth(xDelaySource.signal, smoothBy);
+  let yValue = Reactive.expSmooth(yDelaySource.signal, smoothBy);
+  let zValue = Reactive.expSmooth(zDelaySource.signal, smoothBy);
+
+  let xRotation = Reactive.expSmooth(rxDelaySource.signal, smoothBy);
+  let yRotation = Reactive.expSmooth(ryDelaySource.signal, smoothBy);
+  let zRotation = Reactive.expSmooth(rzDelaySource.signal, smoothBy);
 
   newMesh.transform.x = xValue;
   newMesh.transform.y = yValue;
@@ -53,6 +49,18 @@ function animateMesh(newMesh, smoothBy, delayBy, transform) {
   newMesh.transform.rotationX = xRotation;
   newMesh.transform.rotationY = yRotation;
   newMesh.transform.rotationZ = zRotation;
+  const animMeshObj = {
+    mesh: newMesh,
+    delaySources: {
+      xDelaySource,
+      yDelaySource,
+      zDelaySource,
+      rxDelaySource,
+      ryDelaySource,
+      rzDelaySource,
+    },
+  };
+  return animMeshObj;
 }
 
 async function setMaterial(materials, color, opacity, materialIndex) {
@@ -81,28 +89,34 @@ async function createMeshes(
   meshesParent,
   faceTrackingTex,
   maxSmooth,
-  maxDelay
+  delayBase,
+  transform
 ) {
+  const maxMeshes = 60;
   const materialIndex = Math.round(
     (index / amountOfMeshes) * (materials.length - 1)
   );
-  const smoothBy = (maxSmooth / amountOfMeshes) * (index + 1);
+  const smoothBy = (maxSmooth / maxMeshes) * (index + 1);
   // const delayBy = (maxDelay / amountOfMeshes) * (index + 1);
   // a * b ^x /a<0
-  const delayBy = Math.pow((0 - (1 / amountOfMeshes) * (index + 1)) * 20, 2);
+  const delayBy = Math.pow(
+    (0 - (1 / amountOfMeshes) * (index + 1)) * delayBase,
+    2
+  );
   // Diagnostics.log(delayBy);
   const color = await createColor(faceTrackingTex, materialIndex);
   const opacity = (1 / amountOfMeshes) * index;
   const material = await setMaterial(materials, color, opacity, materialIndex);
-  let transform = FaceTracking.face(0).cameraTransform;
+  // let transform = FaceTracking.face(0).cameraTransform;
   // Diagnostics.log("create");
   let newMesh = await Scene.create("FaceMesh", {
     name: "mesh" + index,
   });
+
   newMesh.material = material;
-  animateMesh(newMesh, smoothBy, delayBy, transform);
+  const animMeshObj = animateMesh(newMesh, smoothBy, delayBy, transform, index);
   addToParent(newMesh, meshesParent);
-  return newMesh;
+  return animMeshObj;
 }
 
 async function removeFromParent(mesh, meshesParent) {
@@ -115,9 +129,11 @@ async function addToParent(mesh, meshesParent) {
 }
 
 async function main() {
-  const amountOfMeshes = 36;
+  const amountOfMeshes = 20;
   const maxSmooth = 350;
   const maxDelay = 0.8;
+  let delayBase = 1;
+  const transform = FaceTracking.face(0).cameraTransform;
   const [meshesParent, faceTrackingTex, materials] = await Promise.all([
     Scene.root.findFirst("meshesNullObj"),
     Textures.findFirst("faceTracker0 Texture"),
@@ -139,13 +155,15 @@ async function main() {
           meshesParent,
           faceTrackingTex,
           maxSmooth,
-          maxDelay
+          delayBase,
+          transform
         )
       );
     }
     allMeshes = meshes;
   }
   await initialiseMeshes().then(() => gameLoop());
+
   // await initialisation
   let touchActive = true;
   async function createAndDestroyMeshes() {
@@ -169,7 +187,8 @@ async function main() {
               meshesParent,
               faceTrackingTex,
               maxSmooth,
-              maxDelay
+              maxDelay,
+              transform
             )
           );
         }
@@ -177,18 +196,53 @@ async function main() {
       })
       .then(() => (touchActive = true));
   }
+  function delayF(amountOfMeshes, allMeshes) {
+    const transform = FaceTracking.face(0).cameraTransform;
+    let delayValue = 1;
+    TouchGestures.onLongPress().subscribe((gesture) => {
+      Diagnostics.log("tap");
+      const time1 = Time.ms.pinLastValue();
+      gesture.state.monitor().subscribe((state) => {
+        Diagnostics.log("tap");
+        if (state.newValue == "ENDED") {
+          const time2 = Time.ms.pinLastValue();
+
+          Diagnostics.log("Long press gesture has ended");
+
+          const timePassed = time2 - time1;
+          delayValue += timePassed;
+          // Diagnostics.log(delayValue);
+          const transitionAreas = [
+            "x",
+            "y",
+            "z",
+            "rotationX",
+            "rotationY",
+            "rotationZ",
+          ];
+          for (let i = 0; i < amountOfMeshes; i++) {
+            const delayBase = Math.pow(
+              0 - (1 / amountOfMeshes) * (i + 1) * delayValue * 0.01,
+              2
+            );
+            Diagnostics.log(delayBase);
+            Object.values(allMeshes[i].delaySources).forEach((key, index) => {
+              // Diagnostics.log(key);
+              const tArea = transitionAreas[index];
+              key.set(
+                transform[tArea].delayBy({
+                  milliseconds: delayBase,
+                })
+              );
+            });
+          }
+        }
+      });
+    });
+  }
 
   async function gameLoop() {
-    TouchGestures.onTap().subscribe(async (gesture) => {
-      if (touchActive) {
-        // Diagnostics.log("tap");
-        touchActive = false;
-        // Diagnostics.log("deactivated");
-        createAndDestroyMeshes();
-
-        // Diagnostics.log("activated");
-      }
-    });
+    delayF(amountOfMeshes, allMeshes);
   }
 }
 
